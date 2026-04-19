@@ -1,0 +1,104 @@
+main:
+  params: [input]
+  steps:
+    - loadRuntimeConfig:
+        assign:
+          - extract_url: ${sys.get_env("EXTRACT_URL", "")}
+          - summarize_url: ${sys.get_env("SUMMARIZE_URL", "")}
+          - generate_url: ${sys.get_env("GENERATE_URL", "")}
+          - publish_url: ${sys.get_env("PUBLISH_URL", "")}
+          - secret_api_key: ${sys.get_env("SECRET_API_KEY", "")}
+          - run_date: ${string(input.date)}
+          - links_filename: ${"links_" + string(input.date) + ".txt"}
+          - extract_output_filename: ${"full_content_" + string(input.date) + ".jsonl"}
+          - extract_error_filename: ${"fetch_errors_" + string(input.date) + ".jsonl"}
+          - summarize_output_filename: ${"podcast_" + string(input.date) + ".jsonl"}
+          - generate_output_filename: ${"podcast_" + string(input.date) + ".wav"}
+
+    - runExtract:
+        call: call_service
+        args:
+          stage_name: "extract"
+          url: ${extract_url}
+          api_key: ${secret_api_key}
+          request_body:
+            input_filename: ${links_filename}
+            output_filename: ${extract_output_filename}
+            error_output_filename: ${extract_error_filename}
+        result: extract_response
+
+    - runSummarize:
+        call: call_service
+        args:
+          stage_name: "summarize"
+          url: ${summarize_url}
+          api_key: ${secret_api_key}
+          request_body:
+            input_filename: ${extract_response.output_filename}
+            output_filename: ${summarize_output_filename}
+        result: summarize_response
+
+    - runGenerate:
+        call: call_service
+        args:
+          stage_name: "generate"
+          url: ${generate_url}
+          api_key: ${secret_api_key}
+          request_body:
+            input_filename: ${summarize_response.output_filename}
+            output_filename: ${generate_output_filename}
+        result: generate_response
+
+    - runPublish:
+        call: call_service
+        args:
+          stage_name: "publish"
+          url: ${publish_url}
+          api_key: ${secret_api_key}
+          request_body:
+            input_filename: ${generate_response.output_filename}
+            date: ${run_date}
+        result: publish_response
+
+    - returnResult:
+        return:
+          date: ${run_date}
+          files:
+            extracted_content: ${extract_response.output_filename}
+            extract_errors: ${extract_response.error_output_filename}
+            podcast_script: ${summarize_response.output_filename}
+            podcast_audio: ${generate_response.output_filename}
+          extract:
+            total_links: ${extract_response.total_links}
+            success_count: ${extract_response.success_count}
+            error_count: ${extract_response.error_count}
+          publish:
+            track_id: ${publish_response.track_id}
+            track_permalink_url: ${publish_response.track_permalink_url}
+            track_uri: ${publish_response.track_uri}
+
+call_service:
+  params: [stage_name, url, api_key, request_body]
+  steps:
+    - invokeEndpoint:
+        try:
+          call: http.post
+          args:
+            url: ${url}
+            headers:
+              Content-Type: "application/json"
+              X-API-Key: ${api_key}
+            body: ${request_body}
+          result: http_response
+        except:
+          as: e
+          steps:
+            - raiseHttpFailure:
+                raise:
+                  code: "UPSTREAM_HTTP_ERROR"
+                  stage: ${stage_name}
+                  url: ${url}
+                  error: ${e}
+
+    - returnBody:
+        return: ${http_response.body}
