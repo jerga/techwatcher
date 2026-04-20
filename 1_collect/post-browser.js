@@ -1,5 +1,5 @@
 javascript:(function(){
-  const apiURL = 'https://jerga-techwatch-jw7zbimkva-ew.a.run.app'; 
+  const apiURL = 'apiUrl'; 
   const apiKey = (window.techwatch_config && window.techwatch_config.apiKey) || '';
   const data = { url: window.location.href };
 
